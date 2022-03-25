@@ -1,7 +1,7 @@
 if (!file.Exists("autorun/vj_base_autorun.lua","LUA")) then return end
 ---------------------------------------------------------------------------------------------------------------------------------------------
 SWEP.Base 						= "weapon_vj_base"
-SWEP.PrintName					= "Conjuration"
+SWEP.PrintName					= "Master Conjuration"
 SWEP.Author 					= "Cpt. Hazama"
 SWEP.Contact					= "http://steamcommunity.com/groups/vrejgaming"
 SWEP.Purpose					= ""
@@ -14,13 +14,39 @@ if CLIENT then
 	SWEP.SwayScale 					= 2 -- Default is 1, The scale of the viewmodel sway
 	SWEP.UseHands					= true
 	SWEP.ViewModelFOV				= 80
+
+	local matConj = Material("cpthazama/conjured")
+	net.Receive("VJ_ConjureEffects",function(len)
+		local ent = net.ReadEntity()
+
+		if !IsValid(ent) then return end
+
+		function ent:RenderOverride()
+			local tmCur = UnPredictedCurTime()
+			local ent = self
+			local a = 1
+			local d = 4
+			local posEye = EyePos()
+			cam.Start3D(posEye,EyeAngles())
+				self:DrawModel()
+			cam.End3D()
+			render.SetColorModulation(1,1,1)
+			cam.Start3D(posEye,EyeAngles())
+				render.SetBlend(1)
+				render.MaterialOverride(matConj)
+					self:DrawModel()
+				render.MaterialOverride(0)
+				render.SetBlend(1)
+			cam.End3D()
+		end
+	end)
 end
 	-- Main Settings ---------------------------------------------------------------------------------------------------------------------------------------------
 SWEP.ViewModel					= "models/cpthazama/skyrim/weapons/c_conjuration.mdl"
 SWEP.WorldModel					= "models/weapons/w_bugbait.mdl"
 SWEP.HoldType 					= "knife"
 SWEP.Spawnable					= true
-SWEP.AdminSpawnable				= false
+SWEP.AdminSpawnable				= true
 	-- Primary Fire ---------------------------------------------------------------------------------------------------------------------------------------------
 SWEP.Primary.ClipSize = -1
 SWEP.Primary.DefaultClip = -1
@@ -50,6 +76,10 @@ SWEP.ViewModelAdjust = {
 	Ang = {r=0,p=0,y=0},
 }
 SWEP.MaxSummons = 2
+---------------------------------------------------------------------------------------------------------------------------------------------
+if SERVER then
+	util.AddNetworkString("VJ_ConjureEffects")
+end
 ---------------------------------------------------------------------------------------------------------------------------------------------
 local defAng = Angle(0,0,0)
 --
@@ -153,8 +183,14 @@ function SWEP:Summon(owner)
 		v:Remove()
 	end
 
-	local ent = ents.Create(GetConVarString("vj_conjuration_ent") or "npc_vj_hlr2_zombie")
-	ent:SetPos(owner:GetShootPos() +owner:GetAimVector() *200)
+	local tr = util.TraceLine({
+		start = owner:GetShootPos(),
+		endpos = owner:GetShootPos() +owner:GetAimVector() *750,
+		filter = owner,
+		mask = MASK_SHOT_HULL
+	})
+	local ent = ents.Create(self.SummonEntity or GetConVarString("vj_conjuration_ent") or "npc_vj_hlr2_zombie")
+	ent:SetPos(tr.HitPos +tr.HitNormal *5)
 	ent:SetAngles(owner:GetAngles())
 	ent:Spawn()
 	ent.AllowPrintingInChat = false
@@ -166,14 +202,16 @@ function SWEP:Summon(owner)
 		owner.VJ_NPC_Class = {"CLASS_" .. owner:Nick()}
 	end
 	ent.VJ_NPC_Class = owner.VJ_NPC_Class
-	local time = 30
+	local time = self.SummonTime or false
 	local hpMax = ent:GetMaxHealth()
-	if hpMax <= 200 then
-		time = 30
-	elseif hpMax > 200 && hpMax <= 500 then
-		time = 60
-	elseif hpMax > 500 then
-		time = 120
+	if !time then
+		if hpMax <= 200 then
+			time = 30
+		elseif hpMax > 200 && hpMax <= 500 then
+			time = 60
+		elseif hpMax > 500 then
+			time = 120
+		end
 	end
 	if !IsValid(owner.VJ_SummonA) then
 		owner.VJ_SummonA = ent
@@ -185,6 +223,10 @@ function SWEP:Summon(owner)
 	sound.Play("cpthazama/skyrim/mag/mag_conjure_portal.wav",ent:GetPos(),85)
 	sound.Play("cpthazama/skyrim/mag/mag_conjure_portal_open_2d.wav",ent:GetPos(),150)
 	owner:PrintMessage( HUD_PRINTTALK,ent:GetName() .. " has been summoned for " .. time .. " seconds!")
+
+	net.Start("VJ_ConjureEffects")
+		net.WriteEntity(ent)
+	net.Broadcast()
 
 	local hookName = "VJ_Conjuration_" .. ent:EntIndex()
 	hook.Add("Think",hookName,function()
@@ -226,6 +268,7 @@ function SWEP:CustomOnHolster(newWep)
 end
 ---------------------------------------------------------------------------------------------------------------------------------------------
 function SWEP:Reload()
+	if self.SummonEntity then return end
 	if CurTime() <= self.NextReloadTime then return end
 	self:GetOwner():ConCommand("vj_conjuration_opennpcselect")
 	self.NextReloadTime = CurTime() +1
@@ -304,7 +347,7 @@ function SWEP:DrawHUD()
 	draw.RoundedBox(1,ScrW() *posX,ScrH() *posY,bX,bY,Color(20,20,20,225))
 
 	surface.SetDrawColor(255,255,255,255)
-	surface.SetMaterial(Material(usableList[GetConVarString("vj_conjuration_ent")]))
+	surface.SetMaterial(Material(self.SummonEntity == nil && usableList[GetConVarString("vj_conjuration_ent")] or "entities/" .. self:GetClass() .. ".png"))
 	-- surface.SetMaterial(Material(usableList["npc_vj_hlr2_zombie"]))
 	surface.DrawTexturedRect(ScrW() *posX +bX/2 -(bX *0.95) /2,ScrH() *posY +bY/2 -(bY *0.95) /2,bX *0.95,bY *0.95)
 end
